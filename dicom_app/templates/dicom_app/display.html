@@ -94,8 +94,14 @@
               </button>
             </div>
 
-            <button class="button" onclick="cropImageFromROI()">
-              Crop Image
+            <input
+              type="hidden"
+              name="csrfmiddlewaretoken"
+              value="{{ csrf_token }}"
+            />
+            <!-- Otros elementos de formulario -->
+            <button type="button" onclick="cropImageFromROI()">
+              Recortar imagen
             </button>
 
             <script>
@@ -226,28 +232,28 @@
               element,
               "RectangleRoi"
             );
-
             if (!toolState || !toolState.data.length) {
               alert("No ROI found! Please draw a rectangle first.");
               return;
             }
-
             const roi = toolState.data[0];
             const x1 = Math.floor(roi.handles.start.x);
             const y1 = Math.floor(roi.handles.start.y);
             const x2 = Math.floor(roi.handles.end.x);
             const y2 = Math.floor(roi.handles.end.y);
-
-            // Send the coordinates to Django backend
-            const csrfToken = document.querySelector(
-              "[name=csrfmiddlewaretoken]"
-            ).value;
+            const csrfTokenInput = document.querySelector(
+              "[name='csrfmiddlewaretoken']"
+            );
+            if (!csrfTokenInput) {
+              alert("CSRF token not found!");
+              return;
+            }
+            const csrfToken = csrfTokenInput.value;
             const formData = new FormData();
             formData.append("x1", x1);
             formData.append("y1", y1);
             formData.append("x2", x2);
             formData.append("y2", y2);
-
             fetch("/crop-dicom/", {
               method: "POST",
               headers: {
@@ -258,8 +264,6 @@
               .then((response) => response.json())
               .then((data) => {
                 const croppedImageUrl = data.cropped_image_url;
-
-                // Load the cropped image in a new cornerstone element
                 const croppedElement = document.getElementById(
                   "cropped-cornerstone-element"
                 );
@@ -267,8 +271,6 @@
                 cornerstone.loadImage(croppedImageUrl).then(function (image) {
                   cornerstone.displayImage(croppedElement, image);
                 });
-
-                // Show the download button
                 const downloadButton = document.getElementById(
                   "download-cropped-image"
                 );
