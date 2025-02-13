@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <script>
+      window.ENVIRONMENT = "production"; // Ensure you're in production environment
+    </script>
+
+    <title>RectangleRoi Tool</title>
+
+    <!-- Support for mobile touch devices -->
+    <meta
+      name="viewport"
+      content="user-scalable=no, width=device-width, initial-scale=1, maximum-scale=1"
+    />
+
+    <!-- Favicon -->
+    <link
+      rel="apple-touch-icon"
+      sizes="180x180"
+      href="/static/apple-touch-icon.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="32x32"
+      href="/static/favicon-32x32.png"
+    />
+    <link
+      rel="icon"
+      type="image/png"
+      sizes="16x16"
+      href="/static/favicon-16x16.png"
+    />
+    <link rel="manifest" href="/static/site.webmanifest" />
+    <link
+      rel="mask-icon"
+      href="/static/safari-pinned-tab.svg"
+      color="#5bbad5"
+    />
+    <meta name="msapplication-TileColor" content="#da532c" />
+    <meta name="theme-color" content="#ffffff" />
+
+    <style></style>
+
+    <!-- Local versions of libraries -->
+    <script src="/static/assets/hammer.js"></script>
+    <script src="/static/assets/dicom-parser.js"></script>
+    <script src="/static/assets/cornerstone-core.js"></script>
+    <script src="/static/assets/cornerstone-math.js"></script>
+    <script src="/static/assets/cornerstone-wado-image-loader.js"></script>
+    <script src="/static/assets/cornerstone-tools.js"></script>
+
+    <style>
+      .cornerstone-element-wrapper {
+        width: 100%;
+        max-width: 512px; /* Adjust as needed */
+        aspect-ratio: 1 / 1; /* Ensures a square ratio */
+        border: 1px solid black;
+      }
+      .cornerstone-element {
+        width: 100%;
+        height: 100%;
+      }
+      #croppedCanvas {
+        max-width: 100%;
+        max-height: 100%;
+        border: 1px solid black;
+        background-color: #f0f0f0; /* Light gray background */
+      }
+    </style>
+  </head>
+  <body>
+    <h1>DICOM Viewer</h1>
+
+    <main class="page-content" aria-label="Content">
+      <div class="wrapper">
+        <section class="section">
+          <div class="container">
+            <div class="buttons mode-buttons">
+              <button
+                class="button set-tool-mode is-primary"
+                data-action="Active"
+              >
+                Active
+              </button>
+              <button class="button set-tool-mode" data-action="Passive">
+                Passive
+              </button>
+              <button class="button set-tool-mode" data-action="Enabled">
+                Enable
+              </button>
+              <button class="button set-tool-mode" data-action="Disabled">
+                Disable
+              </button>
+            </div>
+
+            <button class="button" onclick="cropImageFromROI()">
+              Crop Image
+            </button>
+
+            <script>
+              function initModeButtons() {
+                const nameSpace = `.mode-buttons`;
+                const buttons = document.querySelectorAll(
+                  `${nameSpace} .set-tool-mode`
+                );
+
+                const handleClick = function (evt) {
+                  const action = this.dataset.action;
+                  const options = {
+                    mouseButtonMask:
+                      evt.buttons || convertMouseEventWhichToButtons(evt.which),
+                  };
+
+                  cornerstoneTools[`setTool${action}`](toolName, options);
+
+                  buttons.forEach((btn) => {
+                    btn.classList.remove("is-primary");
+                  });
+
+                  this.classList.add("is-primary");
+
+                  evt.preventDefault();
+                  evt.stopPropagation();
+                  evt.stopImmediatePropagation();
+                  return false;
+                };
+
+                buttons.forEach((btn) => {
+                  btn.addEventListener("contextmenu", handleClick);
+                  btn.addEventListener("auxclick", handleClick);
+                  btn.addEventListener("click", handleClick);
+                });
+              }
+            </script>
+
+            <div class="cornerstone-element-wrapper">
+              <div id="cornerstone-element" class="cornerstone-element"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- New cornerstone-element for displaying cropped image -->
+        <div class="cornerstone-element-wrapper">
+          <div
+            id="cropped-cornerstone-element"
+            class="cornerstone-element"
+            style="width: 512px; height: 512px; border: 1px solid black"
+          ></div>
+        </div>
+
+        <!-- Button to download the cropped image -->
+        <button
+          id="download-cropped-image"
+          class="button"
+          style="display: none"
+          onclick="downloadCroppedImage()"
+        >
+          Download Cropped Image
+        </button>
+
+        <script>
+          function _initInterface() {
+            initModeButtons();
+          }
+
+          const baseUrl =
+            window.ENVIRONMENT === "development"
+              ? "http://localhost:4000/"
+              : "/static/";
+
+          _initCornerstone();
+          const element = document.querySelector(".cornerstone-element");
+          _initInterface();
+
+          // Init CornerstoneTools
+          cornerstoneTools.init({
+            showSVGCursors: true,
+          });
+
+          // Image container
+          cornerstone.enable(element);
+          const toolName = "RectangleRoi";
+          const dicomFileUrl = "{{ dicom_file_url }}"; // Django will populate this dynamically
+          const imageIds = [`wadouri:http://localhost:8000${dicomFileUrl}`];
+
+          const stack = {
+            currentImageIdIndex: 0,
+            imageIds: imageIds,
+          };
+
+          element.tabIndex = 0;
+          element.focus();
+
+          cornerstone.loadImage(imageIds[0]).then(function (image) {
+            cornerstoneTools.addStackStateManager(element, ["stack"]);
+            cornerstoneTools.addToolState(element, "stack", stack);
+            cornerstone.displayImage(element, image);
+          });
+
+          // Add the tool
+          const apiTool = cornerstoneTools[`${toolName}Tool`];
+          cornerstoneTools.addTool(apiTool);
+          cornerstoneTools.setToolActive(toolName, { mouseButtonMask: 1 });
+
+          function _initCornerstone() {
+            cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
+            cornerstoneWADOImageLoader.external.dicomParser = dicomParser;
+            cornerstoneTools.external.cornerstoneMath = cornerstoneMath;
+            cornerstoneTools.external.cornerstone = cornerstone;
+            cornerstoneTools.external.Hammer = Hammer;
+
+            const config = {
+              webWorkerPath: `${baseUrl}assets/image-loader/cornerstoneWADOImageLoaderWebWorker.js`,
+              taskConfiguration: {
+                decodeTask: {
+                  codecsPath: `${baseUrl}assets/image-loader/cornerstoneWADOImageLoaderCodecs.js`,
+                },
+              },
+            };
+            cornerstoneWADOImageLoader.webWorkerManager.initialize(config);
+          }
+          function cropImageFromROI() {
+            const element = document.getElementById("cornerstone-element");
+            const toolState = cornerstoneTools.getToolState(
+              element,
+              "RectangleRoi"
+            );
+
+            if (!toolState || !toolState.data.length) {
+              alert("No ROI found! Please draw a rectangle first.");
+              return;
+            }
+
+            const roi = toolState.data[0];
+            const x1 = Math.floor(roi.handles.start.x);
+            const y1 = Math.floor(roi.handles.start.y);
+            const x2 = Math.floor(roi.handles.end.x);
+            const y2 = Math.floor(roi.handles.end.y);
+
+            // Send the coordinates to Django backend
+            const csrfToken = document.querySelector(
+              "[name=csrfmiddlewaretoken]"
+            ).value;
+            const formData = new FormData();
+            formData.append("x1", x1);
+            formData.append("y1", y1);
+            formData.append("x2", x2);
+            formData.append("y2", y2);
+
+            fetch("/crop-dicom/", {
+              method: "POST",
+              headers: {
+                "X-CSRFToken": csrfToken,
+              },
+              body: formData,
+            })
+              .then((response) => response.json())
+              .then((data) => {
+                const croppedImageUrl = data.cropped_image_url;
+
+                // Load the cropped image in a new cornerstone element
+                const croppedElement = document.getElementById(
+                  "cropped-cornerstone-element"
+                );
+                cornerstone.enable(croppedElement);
+                cornerstone.loadImage(croppedImageUrl).then(function (image) {
+                  cornerstone.displayImage(croppedElement, image);
+                });
+
+                // Show the download button
+                const downloadButton = document.getElementById(
+                  "download-cropped-image"
+                );
+                downloadButton.style.display = "block";
+              })
+              .catch((error) => {
+                console.error("Error cropping DICOM:", error);
+              });
+          }
+
+          function downloadCroppedImage() {
+            const croppedImageUrl = "/media/outputs/cropped_image.dcm"; // Adjust path as needed
+            const link = document.createElement("a");
+            link.href = croppedImageUrl;
+            link.download = "cropped_image.dcm";
+            link.click();
+          }
+
+          const convertMouseEventWhichToButtons = (which) => {
+            switch (which) {
+              case 0:
+                return 0;
+              case 1:
+                return 1;
+              case 2:
+                return 4;
+              case 3:
+                return 2;
+            }
+            return 0;
+          };
+        </script>
+      </div>
+    </main>
+
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        console.log("Cornerstone libraries loaded");
+
+        // Initialize Cornerstone and set up WADO Image Loader
+        cornerstoneWADOImageLoader.external.cornerstone = cornerstone;
+        cornerstoneWADOImageLoader.configure({ useWebWorkers: false });
+
+        async function loadDicomImage() {
+          const dicomFileUrl = "{{ dicom_file_url }}";
+          const imageId = `wadouri:http://localhost:8000${dicomFileUrl}`;
+
+          const element = document.getElementById("dicomImage");
+          cornerstone.enable(element);
+
+          cornerstone
+            .loadAndCacheImage(imageId)
+            .then((image) => {
+              cornerstone.displayImage(element, image);
+            })
+            .catch((error) => {
+              console.log("Error loading DICOM image:", error);
+            });
+        }
+
+        loadDicomImage();
+      });
+    </script>
+  </body>
+</html>
