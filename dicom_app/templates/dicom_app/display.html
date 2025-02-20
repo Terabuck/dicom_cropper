@@ -99,6 +99,7 @@ margin-top: 15px;
 <body>
 <h1>DICOM Viewer</h1>
 
+
 <main class="page-content" aria-label="Content">
 <div class="wrapper">
 <section class="section">
@@ -199,7 +200,60 @@ setInterval(logToolStatus, 5000); // Log every 5 seconds
 <div>
 <!-- Replace canvas with new cornerstone element -->
 <div>
-<h2>Cropped DICOM</h2>
+<!-- Start Over button -->
+<button id="startOverButton" class="button" style="margin-top: 10px; background-color: #ff5252; color: white; padding: 10px 20px; border: none; border-radius: 4px;">
+  Start Over
+</button>
+
+<script>
+  document.getElementById('startOverButton').addEventListener('click', function() {
+    if (confirm('This will clear all cropped images. Are you sure?')) {
+      startOver();
+    }
+  });
+
+  function startOver() {
+    // Clear server-side outputs
+    fetch('/clear-outputs/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': '{{ csrf_token }}'
+      }
+    })
+    .then(response => response.json())
+    .then(data => {
+      if (data.success) {
+        // Clear client-side display
+        const croppedElement = document.getElementById('croppedDicomElement');
+        if (croppedElement) {
+          // Clear the cropped display
+          cornerstone.disable(croppedElement);
+          while (croppedElement.firstChild) {
+            croppedElement.removeChild(croppedElement.firstChild);
+          }
+        }
+        
+        // Hide download button
+        document.getElementById('downloadButton').style.display = 'none';
+        
+        // Reset currentCroppedUrl
+        currentCroppedUrl = null;
+        
+        alert(`Cleanup complete! Deleted ${data.files_deleted} files.`);
+      } else {
+        alert('Error during cleanup: ' + (data.error || 'Unknown error'));
+      }
+    })
+    .catch(error => {
+      console.error('Cleanup failed:', error);
+      alert('Cleanup failed: ' + error.message);
+    });
+  }
+</script>
+
+  <h2>Cropped DICOM</h2>
+
 <div id="croppedDicomElement" style="width:512px; height:512px; border:1px solid red"></div>
 </div>
 
@@ -467,23 +521,18 @@ Download Cropped Image
 let currentCroppedUrl = null;
 
 function handleDownload() {
-    if (!currentCroppedUrl) return;
+if (!currentCroppedUrl) return;
 
-    // Add download parameter plus delete_after_download to trigger both behaviors
-    const downloadUrl = `${currentCroppedUrl}?download=true&delete_after_download=true`;
+// Add download parameter to trigger attachment
+const downloadUrl = `${currentCroppedUrl}?download=true`;
 
-    // Create temporary link
-    const link = document.createElement('a');
-    link.href = downloadUrl;
-    link.download = currentCroppedUrl.split('/').pop(); // Get filename from URL
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    
-    // Show a message that file will be deleted after download
-    setTimeout(() => {
-        alert("Download complete. The cropped DICOM file will be deleted from the server.");
-    }, 1000);
+// Create temporary link
+const link = document.createElement('a');
+link.href = downloadUrl;
+link.download = currentCroppedUrl.split('/').pop(); // Get filename from URL
+document.body.appendChild(link);
+link.click();
+document.body.removeChild(link);
 }
 </script>
 </body>
