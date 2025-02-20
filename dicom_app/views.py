@@ -358,12 +358,6 @@ def upload_dicom(request):
     return render(request, 'dicom_app/upload.html', {'form': form})
 
 def serve_dicom_file(request, filename):
-    """
-    Serve a DICOM file with appropriate content type.
-    
-    If download=true is in the query parameters, the file will be served as an
-    attachment instead of inline content.
-    """
     # Check if download is requested
     is_download = request.GET.get('download', False)
     
@@ -379,17 +373,13 @@ def serve_dicom_file(request, filename):
                 except Exception as read_error:
                     logger.info(f"Serving DICOM file (couldn't read metadata): {filename}")
                     logger.debug(f"Metadata read error: {str(read_error)}")
-                
-                # Create response
+                    
                 with open(file_path, "rb") as f:
                     response = HttpResponse(f.read(), content_type="application/dicom")
-                    
-                # Set disposition based on download parameter
-                disposition = 'attachment' if is_download else 'inline'
-                response["Content-Disposition"] = f'{disposition}; filename="{filename}"'
-                
-                return response
-                
+                    # Set attachment for downloads, inline for viewing
+                    disposition = 'attachment' if is_download else 'inline'
+                    response["Content-Disposition"] = f'{disposition}; filename="{filename}"'
+                    return response
             except Exception as e:
                 logger.error(f"Error serving file {filename}: {str(e)}")
                 return HttpResponse(f"Error serving file: {str(e)}", status=500)
@@ -397,48 +387,10 @@ def serve_dicom_file(request, filename):
     logger.warning(f"File not found: {filename}")
     return HttpResponse("File not found", status=404)
 
-def clean_outputs_directory(keep_file=None):
-    """
-    Clean the outputs directory by deleting all files except the one specified.
-    
-    Args:
-        keep_file (str, optional): Filename to keep (without path). If None, deletes all files.
-    
-    Returns:
-        int: Number of files deleted
-    """
-    output_dir = os.path.join(settings.MEDIA_ROOT, 'outputs')
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir, exist_ok=True)
-        logger.info(f"Created outputs directory: {output_dir}")
-        return 0
-            
-    count = 0
-    for filename in os.listdir(output_dir):
-        file_path = os.path.join(output_dir, filename)
-        # Skip directories and the file to keep
-        if os.path.isdir(file_path) or (keep_file and filename == keep_file):
-            continue
-            
-        try:
-            os.remove(file_path)
-            count += 1
-            logger.info(f"Deleted file from outputs directory: {filename}")
-        except Exception as e:
-            logger.error(f"Failed to delete file {filename}: {str(e)}")
-            
-    logger.info(f"Cleaned outputs directory: {count} files deleted")
-    return count
-
 @csrf_exempt
 def crop_dicom(request):
     if request.method == 'POST':
         try:
-            # Clean outputs directory from previous crops
-            cleaned_count = clean_outputs_directory()
-            if cleaned_count > 0:
-                logger.info(f"Cleaned up {cleaned_count} previous cropped files")
-                
             logger.info("Received crop request")
             data = json.loads(request.body)
             logger.debug(f"Request  {data}")
@@ -724,3 +676,53 @@ def crop_dicom(request):
             logger.error(f"Error during cropping: {str(e)}")
             logger.error(traceback.format_exc())
             return JsonResponse({'error': str(e)}, status=500)
+
+def clean_outputs_directory(keep_file=None):
+    """
+    Clean the outputs directory by deleting all files except the one specified.
+    
+    Args:
+        keep_file (str, optional): Filename to keep (without path). If None, deletes all files.
+    
+    Returns:
+        int: Number of files deleted
+    """
+    output_dir = os.path.join(settings.MEDIA_ROOT, 'outputs')
+    if not os.path.exists(output_dir):
+        return 0
+        
+    count = 0
+    for filename in os.listdir(output_dir):
+        file_path = os.path.join(output_dir, filename)
+        # Skip directories and the file to keep
+        if os.path.isdir(file_path) or (keep_file and filename == keep_file):
+            continue
+            
+        try:
+            os.remove(file_path)
+            count += 1
+            logger.info(f"Deleted file from outputs directory: {filename}")
+        except Exception as e:
+            logger.error(f"Failed to delete file {filename}: {str(e)}")
+            
+    logger.info(f"Cleaned outputs directory: {count} files deleted")
+    return count
+
+@csrf_exempt
+def clear_outputs(request):
+    """Clean all files in the outputs directory"""
+    if request.method == 'POST':
+        try:
+            count = clean_outputs_directory()
+            return JsonResponse({
+                'success': True,
+                'files_deleted': count,
+                'message': f"Successfully deleted {count} files from outputs directory"
+            })
+        except Exception as e:
+            logger.error(f"Error clearing outputs directory: {str(e)}")
+            return JsonResponse({
+                'success': False,
+                'error': str(e)
+            }, status=500)
+    return JsonResponse({'error': 'Only POST method is allowed'}, status=405)
